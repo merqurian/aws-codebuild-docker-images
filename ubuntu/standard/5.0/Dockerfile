@@ -61,37 +61,6 @@ RUN useradd codebuild-user
 
 FROM core AS tools
 
-# Install Firefox
-RUN set -ex \
-    && apt-add-repository -y "deb http://archive.canonical.com/ubuntu $(lsb_release -sc) partner" \
-    && apt-get install -y -qq firefox \
-    && firefox --version
-
-# Install GeckoDriver
-RUN set -ex \
-    && apt-get install -y -qq firefox-geckodriver \
-    && geckodriver --version
-
-# Install Chrome
-RUN set -ex \
-    && wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | apt-key add - \
-    && echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" | tee /etc/apt/sources.list.d/google.list \
-    && apt-get update \
-    && apt-get install -y -qq google-chrome-stable \
-    && google-chrome --version
-
-# Install ChromeDriver
-RUN set -ex \
-    && CHROME_VERSION=`google-chrome --version | awk -F '[ .]' '{print $3"."$4"."$5}'` \
-    && CHROME_DRIVER_VERSION=`wget -qO- chromedriver.storage.googleapis.com/LATEST_RELEASE_$CHROME_VERSION` \
-    && wget -qO /tmp/chromedriver_linux64.zip https://chromedriver.storage.googleapis.com/$CHROME_DRIVER_VERSION/chromedriver_linux64.zip \
-    && unzip -q /tmp/chromedriver_linux64.zip -d /opt \
-    && rm /tmp/chromedriver_linux64.zip \
-    && mv /opt/chromedriver /opt/chromedriver-$CHROME_DRIVER_VERSION \
-    && chmod 755 /opt/chromedriver-$CHROME_DRIVER_VERSION \
-    && ln -s /opt/chromedriver-$CHROME_DRIVER_VERSION /usr/bin/chromedriver \
-    && chromedriver --version
-
 # Install stunnel
 RUN set -ex \
    && STUNNEL_VERSION=5.56 \
@@ -159,10 +128,6 @@ RUN set -ex \
 #python
 RUN curl https://pyenv.run | bash
 ENV PATH="/root/.pyenv/shims:/root/.pyenv/bin:$PATH"
-
-#php
-RUN curl -L https://raw.githubusercontent.com/phpenv/phpenv-installer/master/bin/phpenv-installer | bash
-ENV PATH="/root/.phpenv/shims:/root/.phpenv/bin:$PATH"
 
 #go
 RUN git clone https://github.com/syndbg/goenv.git $HOME/.goenv
@@ -244,6 +209,7 @@ RUN rbenv install $RUBY_27_VERSION && rm -rf /tmp/* && rbenv global $RUBY_27_VER
 ENV PYTHON_37_VERSION="3.7.10"
 ENV PYTHON_38_VERSION="3.8.10"
 ENV PYTHON_39_VERSION="3.9.5"
+ENV PYTHON_310_VERSION="3.10.4"
 
 ARG PYTHON_PIP_VERSION=21.1.2
 ENV PYYAML_VERSION=5.4.1
@@ -272,30 +238,15 @@ RUN set -ex \
     && pip3 install --no-cache-dir --upgrade "PyYAML==$PYYAML_VERSION" \
     && pip3 install --no-cache-dir --upgrade 'setuptools==57.4.0' wheel aws-sam-cli boto3 pipenv virtualenv --use-feature=2020-resolver
 
+COPY tools/runtime_configs/python/$PYTHON_310_VERSION /root/.pyenv/plugins/python-build/share/python-build/$PYTHON_310_VERSION
+RUN   env PYTHON_CONFIGURE_OPTS="--enable-shared" pyenv install $PYTHON_310_VERSION && rm -rf /tmp/
+RUN   pyenv global  $PYTHON_310_VERSION
+RUN set -ex \
+    && pip3 install --no-cache-dir --upgrade --force-reinstall "pip==$PYTHON_PIP_VERSION" \
+    && pip3 install --no-cache-dir --upgrade "PyYAML==$PYYAML_VERSION" \
+    && pip3 install --no-cache-dir --upgrade 'setuptools==57.4.0' wheel aws-sam-cli boto3 pipenv virtualenv --use-feature=2020-resolver
+
 #**************** END PYTHON *****************************************************
-
-#****************      PHP     ****************************************************
-ENV PHP_73_VERSION="7.3.25"
-ENV PHP_74_VERSION="7.4.13"
-ENV PHP_80_VERSION="8.0.0"
-
-RUN curl -L https://raw.githubusercontent.com/phpenv/phpenv-installer/master/bin/phpenv-installer | bash
-ENV PATH="/root/.phpenv/shims:/root/.phpenv/bin:$PATH"
-COPY tools/runtime_configs/php/$PHP_73_VERSION /root/.phpenv/plugins/php-build/share/php-build/definitions/$PHP_73_VERSION
-RUN phpenv install $PHP_73_VERSION && rm -rf /tmp/* && phpenv global $PHP_73_VERSION
-RUN echo "memory_limit = 1G;" >> "/root/.phpenv/versions/$PHP_73_VERSION/etc/conf.d/memory.ini"
-
-COPY tools/runtime_configs/php/$PHP_74_VERSION /root/.phpenv/plugins/php-build/share/php-build/definitions/$PHP_74_VERSION
-RUN phpenv install $PHP_74_VERSION && rm -rf /tmp/* && phpenv global $PHP_74_VERSION
-RUN echo "memory_limit = 1G;" >> "/root/.phpenv/versions/$PHP_74_VERSION/etc/conf.d/memory.ini"
-
-COPY tools/runtime_configs/php/$PHP_80_VERSION /root/.phpenv/plugins/php-build/share/php-build/definitions/$PHP_80_VERSION
-RUN phpenv install $PHP_80_VERSION && rm -rf /tmp/* && phpenv global $PHP_80_VERSION
-RUN echo "memory_limit = 1G;" >> "/root/.phpenv/versions/$PHP_80_VERSION/etc/conf.d/memory.ini"
-
-# Install Composer globally
-RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/bin --filename=composer
-#****************      END PHP     ****************************************************
 
 #****************     GOLANG     ****************************************************
 ENV GOLANG_15_VERSION="1.15.12"
@@ -451,8 +402,7 @@ FROM runtimes_n_corretto AS std_v5
 
 # Activate runtime versions specific to image version.
 RUN n $NODE_14_VERSION
-RUN pyenv  global $PYTHON_39_VERSION
-RUN phpenv global $PHP_80_VERSION
+RUN pyenv  global $PYTHON_310_VERSION
 RUN rbenv  global $RUBY_27_VERSION
 RUN goenv global  $GOLANG_15_VERSION
 
